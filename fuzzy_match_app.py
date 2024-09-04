@@ -10,6 +10,10 @@ db_path = os.path.join(os.path.dirname(__file__), 'crm_data.db')
 conn = sqlite3.connect(db_path)
 crm_df = pd.read_sql("SELECT * FROM crm", conn)
 
+# Show a preview of the CRM data to ensure it's loaded properly
+st.write(f"CRM Data Loaded: {len(crm_df)} rows")
+st.dataframe(crm_df.head(500))  # Show first 500 rows for preview
+
 # Function to clean and prepare text for fuzzy matching
 def clean_text(text):
     return ' '.join(str(text).upper().split())
@@ -38,7 +42,11 @@ uploaded_file = st.file_uploader("Upload your file for matching", type=["csv", "
 if uploaded_file is not None:
     # Load the uploaded file into a dataframe
     user_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-    
+
+    # Show a preview of the user-uploaded file
+    st.write(f"Uploaded File: {len(user_df)} rows")
+    st.dataframe(user_df.head(500))  # Show first 500 rows of the uploaded file
+
     # Clean the text data
     user_df['companyName'] = user_df['companyName'].apply(clean_text)
     user_df['companyAddress'] = user_df['companyAddress'].apply(clean_text)
