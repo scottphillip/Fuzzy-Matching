@@ -1,6 +1,4 @@
 pandas
 streamlit
-sqlite3
 fuzzywuzzy
-concurrent.futures
 xlsxwriter
