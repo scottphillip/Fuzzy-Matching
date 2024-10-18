@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 import sqlite3
 import re
+import time
 from fuzzywuzzy import process, fuzz
 from concurrent.futures import ThreadPoolExecutor
 
@@ -122,16 +123,27 @@ if uploaded_file is not None:
     user_df['companyCity'] = user_df['companyCity'].apply(clean_text)
     user_df['companyState'] = user_df['companyState'].apply(clean_text)
 
-    # Perform fuzzy matching in parallel with progress tracking
+    # Perform fuzzy matching in batches with progress tracking
+    batch_size = 1000  # Process 1000 rows at a time
+    total_rows = len(user_df)
     results = []
+
     st.write("Fuzzy matching in progress, please wait...")
     progress_bar = st.progress(0)
-    total_rows = len(user_df)
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        for idx, result in enumerate(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in user_df.iterrows()])):
-            results.append(result)
-            progress_bar.progress((idx + 1) / total_rows)  # Update progress bar
+    for start in range(0, total_rows, batch_size):
+        end = min(start + batch_size, total_rows)
+        batch = user_df.iloc[start:end]
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            batch_results = list(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in batch.iterrows()]))
+            results.extend(batch_results)
+
+        # Update progress
+        progress_bar.progress(end / total_rows)
+
+        # Optionally, log or save checkpoints to a file to monitor progress
+        time.sleep(0.5)  # Simulate delay to avoid overload, can be removed
 
     # Create results DataFrame
     for key in results[0].keys():
