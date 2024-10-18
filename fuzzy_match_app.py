@@ -79,22 +79,20 @@ def get_best_match(row, crm_df):
     # Use fuzzy matching
     best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices, scorer=fuzz.token_sort_ratio)
 
-    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices, scorer=fuzz.token_sort_ratio)
-
-if best_match_tuple:
-    best_match, score = best_match_tuple[0], best_match_tuple[1]  # Unpack only the first two values
-    best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
-    
-    if score >= 65 and query_state == clean_text(best_match_row['companyState']):
-        return {
-            'Match ID': best_match_row['systemId'],
-            'Match Score': score,
-            'Matched Name': best_match_row['companyName'],
-            'Matched Address': best_match_row['companyAddress'],
-            'Matched City': best_match_row['companyCity'],
-            'Matched State': best_match_row['companyState'],
-            'Matched Zip': best_match_row['companyZipCode']
-        }
+    if best_match_tuple:
+        best_match, score = best_match_tuple[0], best_match_tuple[1]  # Unpack only the first two values
+        best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
+        
+        if score >= 65 and query_state == clean_text(best_match_row['companyState']):
+            return {
+                'Match ID': best_match_row['systemId'],
+                'Match Score': score,
+                'Matched Name': best_match_row['companyName'],
+                'Matched Address': best_match_row['companyAddress'],
+                'Matched City': best_match_row['companyCity'],
+                'Matched State': best_match_row['companyState'],
+                'Matched Zip': best_match_row['companyZipCode']
+            }
     return {
         'Match ID': '',
         'Match Score': 0,
