@@ -1,5 +1,6 @@
-streamlit
 pandas
+streamlit
+sqlite3
 fuzzywuzzy
-python-Levenshtein
-openpyxl
+concurrent.futures
+xlsxwriter
