@@ -2,14 +2,16 @@ import pandas as pd
 import streamlit as st
 import sqlite3
 import re
-# Switch to RapidFuzz for faster matching
-# from rapidfuzz import process, fuzz
-from fuzzywuzzy import process, fuzz
+from rapidfuzz import process  # Switched to RapidFuzz for better speed
 from concurrent.futures import ThreadPoolExecutor
 
-# Connect to SQLite database
+# Connect to SQLite database and limit the columns pulled
 conn = sqlite3.connect("crm_data.db")
-crm_df = pd.read_sql("SELECT * FROM crm", conn)
+crm_df = pd.read_sql("SELECT companyName, companyAddress, companyState, companyCity, companyZipCode, systemId FROM crm", conn)
+
+# Precompute the combined field in the CRM data to avoid recalculating during every comparison
+crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyAddress'] + ' ' + crm_df['companyState']
+choices = crm_df['combined'].tolist()  # Precompute the list of combined fields once
 
 # Function to standardize and clean address
 def standardize_address(address):
@@ -56,13 +58,9 @@ def get_best_match(row, crm_df):
     query_address = standardize_address(row['companyAddress'])  # Standardize address here
     query_state = clean_text(row['companyState'])
 
-    # Combine fields for matching
-    crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyAddress'] + ' ' + crm_df['companyState']
-    choices = crm_df['combined'].tolist()
+    # Use RapidFuzz for faster fuzzy matching
+    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices)
 
-    # Use fuzzy matching (RapidFuzz can be used for speed, see commented out section)
-    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices, scorer=fuzz.token_sort_ratio)
-    
     if best_match_tuple:
         best_match, score = best_match_tuple
         best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
@@ -107,9 +105,17 @@ if uploaded_file is not None:
     user_df['companyCity'] = user_df['companyCity'].apply(clean_text)
     user_df['companyState'] = user_df['companyState'].apply(clean_text)
 
-    # Perform fuzzy matching in parallel
-    with ThreadPoolExecutor() as executor:
-        results = list(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in user_df.iterrows()]))
+    # Show progress to the user
+    st.write("Fuzzy matching in progress, please wait...")
+    progress_bar = st.progress(0)
+    total_rows = len(user_df)
+
+    # Perform fuzzy matching in parallel with progress tracking
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for idx, result in enumerate(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in user_df.iterrows()])):
+            results.append(result)
+            progress_bar.progress((idx + 1) / total_rows)  # Update progress bar
 
     # Create results DataFrame
     for key in results[0].keys():
