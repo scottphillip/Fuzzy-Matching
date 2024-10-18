@@ -52,7 +52,7 @@ def standardize_address(address):
 def clean_text(text):
     return ' '.join(str(text).upper().split())
 
-# Function to get the best match
+# Function to get the best match with error handling
 def get_best_match(row, crm_df):
     query_name = clean_text(row['companyName'])
     query_address = standardize_address(row['companyAddress'])  # Standardize address here
@@ -61,6 +61,7 @@ def get_best_match(row, crm_df):
     # Use RapidFuzz for faster fuzzy matching
     best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices)
 
+    # Check if best_match_tuple is None
     if best_match_tuple:
         best_match, score = best_match_tuple
         best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
@@ -76,6 +77,7 @@ def get_best_match(row, crm_df):
                 'Matched State': best_match_row['companyState'],
                 'Matched Zip': best_match_row['companyZipCode']
             }
+    # Return default empty result if no match is found or if the match score is too low
     return {
         'Match ID': '',
         'Match Score': 0,
