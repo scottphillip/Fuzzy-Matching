@@ -2,16 +2,34 @@ import pandas as pd
 import streamlit as st
 import sqlite3
 import re
-from rapidfuzz import process
+from fuzzywuzzy import process, fuzz
 from concurrent.futures import ThreadPoolExecutor
+
+# Remove system sleep prevention for non-Windows environments
+import platform
+if platform.system() == "Windows":
+    import ctypes
+
+# Function to prevent sleep mode (Windows only)
+def prevent_sleep():
+    if platform.system() == "Windows":
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000002)
+
+# Function to allow system sleep (Windows only)
+def allow_sleep():
+    if platform.system() == "Windows":
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+
+# Prevent sleep at the start of the script
+prevent_sleep()
 
 # Connect to SQLite database and limit the columns pulled
 conn = sqlite3.connect("crm_data.db")
 crm_df = pd.read_sql("SELECT companyName, companyAddress, companyState, companyCity, companyZipCode, systemId FROM crm", conn)
 
-# Precompute the combined field in the CRM data to avoid recalculating during every comparison
+# Precompute the combined field in the CRM data to avoid recalculating for each row
 crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyAddress'] + ' ' + crm_df['companyState']
-choices = crm_df['combined'].tolist()  # Precompute the list of combined fields once
+choices = crm_df['combined'].tolist()  # Precompute the list of combined strings
 
 # Function to standardize and clean address
 def standardize_address(address):
@@ -52,18 +70,18 @@ def standardize_address(address):
 def clean_text(text):
     return ' '.join(str(text).upper().split())
 
-# Function to get the best match with correct unpacking
+# Function to get the best match
 def get_best_match(row, crm_df):
     query_name = clean_text(row['companyName'])
     query_address = standardize_address(row['companyAddress'])  # Standardize address here
     query_state = clean_text(row['companyState'])
 
-    # Use RapidFuzz for faster fuzzy matching
-    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices)
+    # Use fuzzy matching
+    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices, scorer=fuzz.token_sort_ratio)
 
-    # Check if best_match_tuple is None
     if best_match_tuple:
-        best_match, score, _ = best_match_tuple  # Unpacking the third value (we don't need it here)
+        best_match = best_match_tuple[0]  # Extract the best match (first item in tuple)
+        score = best_match_tuple[1]  # Extract the score (second item)
         best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
         
         # Only return matches with a score above a threshold and matching state
@@ -77,7 +95,6 @@ def get_best_match(row, crm_df):
                 'Matched State': best_match_row['companyState'],
                 'Matched Zip': best_match_row['companyZipCode']
             }
-    # Return default empty result if no match is found or if the match score is too low
     return {
         'Match ID': '',
         'Match Score': 0,
@@ -107,13 +124,12 @@ if uploaded_file is not None:
     user_df['companyCity'] = user_df['companyCity'].apply(clean_text)
     user_df['companyState'] = user_df['companyState'].apply(clean_text)
 
-    # Show progress to the user
+    # Perform fuzzy matching in parallel with progress tracking
+    results = []
     st.write("Fuzzy matching in progress, please wait...")
     progress_bar = st.progress(0)
     total_rows = len(user_df)
 
-    # Perform fuzzy matching in parallel with progress tracking
-    results = []
     with ThreadPoolExecutor(max_workers=4) as executor:
         for idx, result in enumerate(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in user_df.iterrows()])):
             results.append(result)
@@ -132,5 +148,7 @@ if uploaded_file is not None:
     st.success("Fuzzy matching completed! Download the results below:")
     st.download_button(label="Download Matched Results", data=open(output_path, "rb").read(), file_name=output_path)
 
-# Close the connection
+# Allow the system to sleep after execution
+allow_sleep()
+
 conn.close()
