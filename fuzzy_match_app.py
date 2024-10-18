@@ -52,7 +52,7 @@ def standardize_address(address):
 def clean_text(text):
     return ' '.join(str(text).upper().split())
 
-# Function to get the best match with error handling
+# Function to get the best match with correct unpacking
 def get_best_match(row, crm_df):
     query_name = clean_text(row['companyName'])
     query_address = standardize_address(row['companyAddress'])  # Standardize address here
@@ -63,7 +63,7 @@ def get_best_match(row, crm_df):
 
     # Check if best_match_tuple is None
     if best_match_tuple:
-        best_match, score = best_match_tuple
+        best_match, score, _ = best_match_tuple  # Unpacking the third value (we don't need it here)
         best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
         
         # Only return matches with a score above a threshold and matching state
@@ -133,3 +133,4 @@ if uploaded_file is not None:
     st.download_button(label="Download Matched Results", data=open(output_path, "rb").read(), file_name=output_path)
 
 conn.close()
+
