@@ -4,20 +4,6 @@ import sqlite3
 import re
 from rapidfuzz import process
 from concurrent.futures import ThreadPoolExecutor
-import ctypes
-import time
-
-# Function to prevent sleep mode while the script is running
-def prevent_sleep():
-    # Prevents the system from sleeping
-    ctypes.windll.kernel32.SetThreadExecutionState(0x80000002)
-
-def allow_sleep():
-    # Resets the system's ability to sleep
-    ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
-
-# Call the prevent sleep function
-prevent_sleep()
 
 # Connect to SQLite database and limit the columns pulled
 conn = sqlite3.connect("crm_data.db")
@@ -146,9 +132,5 @@ if uploaded_file is not None:
     st.success("Fuzzy matching completed! Download the results below:")
     st.download_button(label="Download Matched Results", data=open(output_path, "rb").read(), file_name=output_path)
 
-# Allow sleep after the task is finished
-allow_sleep()
-
 # Close the connection
 conn.close()
-
