@@ -2,8 +2,9 @@ import pandas as pd
 import streamlit as st
 import sqlite3
 import re
+from rapidfuzz import process, fuzz  # Use rapidfuzz for faster processing
 from concurrent.futures import ThreadPoolExecutor
-from rapidfuzz import process, fuzz  # Consider using 'rapidfuzz' for faster matching
+import time
 
 # Remove system sleep prevention for non-Windows environments
 import platform
@@ -76,13 +77,13 @@ def get_best_match(row, crm_df):
     query_address = standardize_address(row['companyAddress'])  # Standardize address here
     query_state = clean_text(row['companyState'])
 
-    # Use fuzzy matching
+    # Use fuzzy matching with rapidfuzz
     best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices, scorer=fuzz.token_sort_ratio)
 
     if best_match_tuple:
         best_match, score = best_match_tuple[0], best_match_tuple[1]  # Unpack only the first two values
         best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
-
+        
         if score >= 65 and query_state == clean_text(best_match_row['companyState']):
             return {
                 'Match ID': best_match_row['systemId'],
@@ -115,11 +116,6 @@ uploaded_file = st.file_uploader("Upload your file for matching", type=["csv", "
 if uploaded_file is not None:
     # Load the uploaded file (CSV or Excel)
     user_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-    
-    # Debugging output to confirm file load
-    st.write("CSV File Loaded Successfully")
-    st.write(user_df.shape)  # Check the number of rows and columns in the DataFrame
-    st.dataframe(user_df.head())  # Display the first few rows for confirmation
 
     # Clean the text data
     user_df['companyName'] = user_df['companyName'].apply(clean_text)
@@ -133,28 +129,23 @@ if uploaded_file is not None:
     progress_bar = st.progress(0)
     total_rows = len(user_df)
 
-    try:
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            for idx, result in enumerate(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in user_df.iterrows()])):
-                st.write(f"Processing row {idx + 1}")  # Debugging step to confirm progress
-                results.append(result)
-                progress_bar.progress((idx + 1) / total_rows)  # Update progress bar
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for idx, result in enumerate(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in user_df.iterrows()])):
+            results.append(result)
+            progress_bar.progress((idx + 1) / total_rows)  # Update progress bar
 
-        # Create results DataFrame
-        for key in results[0].keys():
-            user_df[key] = [result[key] for result in results]
+    # Create results DataFrame
+    for key in results[0].keys():
+        user_df[key] = [result[key] for result in results]
 
-        # Write the results to a new Excel file
-        output_path = "matched_file.xlsx"
-        with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
-            user_df.to_excel(writer, index=False, sheet_name='Original Data')
+    # Write the results to a new Excel file
+    output_path = "matched_file.xlsx"
+    with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+        user_df.to_excel(writer, index=False, sheet_name='Original Data')
 
-        # Streamlit download button
-        st.success("Fuzzy matching completed! Download the results below:")
-        st.download_button(label="Download Matched Results", data=open(output_path, "rb").read(), file_name=output_path)
-
-    except Exception as e:
-        st.write(f"Error during processing: {e}")
+    # Streamlit download button
+    st.success("Fuzzy matching completed! Download the results below:")
+    st.download_button(label="Download Matched Results", data=open(output_path, "rb").read(), file_name=output_path)
 
 # Allow the system to sleep after execution
 allow_sleep()
