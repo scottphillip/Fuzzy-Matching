@@ -26,6 +26,9 @@ prevent_sleep()
 
 # Function to standardize and clean address
 def standardize_address(address):
+    if not isinstance(address, str):
+        return ""  # If the address is None or not a string, return an empty string
+    
     # Remove punctuation and special characters
     address = re.sub(r'[.,\-()/]', '', address)
     
