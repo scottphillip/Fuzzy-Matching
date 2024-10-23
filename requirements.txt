@@ -1,5 +1,4 @@
 pandas
 streamlit
 rapidfuzz
-sqlite3
 xlsxwriter
