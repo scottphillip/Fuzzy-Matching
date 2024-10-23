@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 import sqlite3
 import re
-from rapidfuzz import process, fuzz  # Use rapidfuzz for faster processing
+from rapidfuzz import process, fuzz  # Use rapidfuzz for name matching
 from concurrent.futures import ThreadPoolExecutor
 import time
 
@@ -24,76 +24,58 @@ def allow_sleep():
 # Prevent sleep at the start of the script
 prevent_sleep()
 
-# Connect to SQLite database and limit the columns pulled
-conn = sqlite3.connect("crm_data.db")
-crm_df = pd.read_sql("SELECT companyName, companyAddress, companyState, companyCity, companyZipCode, systemId FROM crm", conn)
-
-# Precompute the combined field in the CRM data to avoid recalculating for each row
-crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyAddress'] + ' ' + crm_df['companyState']
-choices = crm_df['combined'].tolist()  # Precompute the list of combined strings
-
 # Function to standardize and clean address
 def standardize_address(address):
-    address = address.upper()  # Convert to uppercase
-    address = re.sub(r'\.', '', address)  # Remove periods
-    address = re.sub(r',', '', address)  # Remove commas
-    address = re.sub(r'\bSTREET\b', 'ST', address)
-    address = re.sub(r'\bROAD\b', 'RD', address)
-    address = re.sub(r'\bBOULEVARD\b', 'BLVD', address)
-    address = re.sub(r'\bDRIVE\b', 'DR', address)
-    address = re.sub(r'\bAVENUE\b', 'AVE', address)
-    address = re.sub(r'\bCOURT\b', 'CT', address)
-    address = re.sub(r'\bLANE\b', 'LN', address)
-    address = re.sub(r'\bCIRCLE\b', 'CIR', address)
-    address = re.sub(r'\bPARKWAY\b', 'PKWY', address)
-    address = re.sub(r'\bSUITE\b', 'STE', address)
-    address = re.sub(r'\bBUILDING\b', 'BLDG', address)
-    address = re.sub(r'\bGROUND\b', 'GDS', address)
-    address = re.sub(r'\bHIGHWAY\b', 'HWY', address)
-    address = re.sub(r'\bPLACE\b', 'PL', address)
+    # Remove punctuation and special characters
+    address = re.sub(r'[.,\-()/]', '', address)
+    
+    # Standardize common abbreviations
+    address = re.sub(r'\bSTREET\b|\bST\b', 'ST', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bROAD\b|\bRD\b', 'RD', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bBOULEVARD\b|\bBLVD\b', 'BLVD', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bDRIVE\b|\bDR\b', 'DR', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bAVENUE\b|\bAVE\b', 'AVE', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bCOURT\b|\bCT\b', 'CT', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bLANE\b|\bLN\b', 'LN', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bCIRCLE\b|\bCIR\b', 'CIR', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bPARKWAY\b|\bPKWY\b', 'PKWY', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bSUITE\b|\bSTE\b', 'STE', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bHIGHWAY\b|\bHWY\b', 'HWY', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bPLACE\b|\bPL\b', 'PL', address, flags=re.IGNORECASE)
 
     # Directional standardizations
-    address = re.sub(r'\bNORTH\b', 'N', address)
-    address = re.sub(r'\bSOUTH\b', 'S', address)
-    address = re.sub(r'\bEAST\b', 'E', address)
-    address = re.sub(r'\bWEST\b', 'W', address)
-    address = re.sub(r'\bNORTHEAST\b', 'NE', address)
-    address = re.sub(r'\bNORTHWEST\b', 'NW', address)
-    address = re.sub(r'\bSOUTHEAST\b', 'SE', address)
-    address = re.sub(r'\bSOUTHWEST\b', 'SW', address)
+    address = re.sub(r'\bNORTH\b', 'N', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bSOUTH\b', 'S', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bEAST\b', 'E', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bWEST\b', 'W', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bNORTHEAST\b', 'NE', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bNORTHWEST\b', 'NW', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bSOUTHEAST\b', 'SE', address, flags=re.IGNORECASE)
+    address = re.sub(r'\bSOUTHWEST\b', 'SW', address, flags=re.IGNORECASE)
 
     # Remove double spaces
     address = re.sub(r'\s+', ' ', address)
     
     return address.strip()
 
-# Function to clean and prepare text (general cleaning)
+# Function to clean and prepare text (general cleaning for names)
 def clean_text(text):
     return ' '.join(str(text).upper().split())
 
-# Function to get the best match
-def get_best_match(row, crm_df):
-    query_name = clean_text(row['companyName'])
-    query_address = standardize_address(row['companyAddress'])  # Standardize address here
-    query_state = clean_text(row['companyState'])
+# Function to return match results
+def return_match(best_match_row, score):
+    return {
+        'Match ID': best_match_row['systemId'],
+        'Match Score': score,
+        'Matched Name': best_match_row['companyName'],
+        'Matched Address': best_match_row['companyAddress'],
+        'Matched City': best_match_row['companyCity'],
+        'Matched State': best_match_row['companyState'],
+        'Matched Zip': best_match_row['companyZipCode']
+    }
 
-    # Use fuzzy matching with rapidfuzz
-    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_state}", choices, scorer=fuzz.token_sort_ratio)
-
-    if best_match_tuple:
-        best_match, score = best_match_tuple[0], best_match_tuple[1]  # Unpack only the first two values
-        best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
-        
-        if score >= 65 and query_state == clean_text(best_match_row['companyState']):
-            return {
-                'Match ID': best_match_row['systemId'],
-                'Match Score': score,
-                'Matched Name': best_match_row['companyName'],
-                'Matched Address': best_match_row['companyAddress'],
-                'Matched City': best_match_row['companyCity'],
-                'Matched State': best_match_row['companyState'],
-                'Matched Zip': best_match_row['companyZipCode']
-            }
+# Function to return no match
+def no_match():
     return {
         'Match ID': '',
         'Match Score': 0,
@@ -104,8 +86,51 @@ def get_best_match(row, crm_df):
         'Matched Zip': ''
     }
 
+# Function to get the best match with address (exact match) and name (fuzzy match)
+def get_best_match(row, crm_df):
+    query_name = clean_text(row['companyName'])
+    query_address = standardize_address(row['companyAddress'])
+    query_city = clean_text(row['companyCity'])
+    query_state = clean_text(row['companyState'])
+
+    # Step 1: Exact match on address + city + state
+    exact_matches = crm_df[
+        (crm_df['companyAddress'].apply(standardize_address) == query_address) &
+        (crm_df['companyCity'].apply(clean_text) == query_city) &
+        (crm_df['companyState'].apply(clean_text) == query_state)
+    ]
+
+    if not exact_matches.empty:
+        # If there's an exact address match, return it with a 100% match score
+        best_match_row = exact_matches.iloc[0]
+        return return_match(best_match_row, 100)
+
+    # Step 2: Fuzzy match on name but ensure same city or state matches
+    best_match_tuple = process.extractOne(query_name, crm_df['combined_name'], scorer=fuzz.token_sort_ratio)
+
+    if best_match_tuple and best_match_tuple[1] >= 65:
+        best_match_name = best_match_tuple[0]
+        best_match_row = crm_df[crm_df['combined_name'] == best_match_name].iloc[0]
+
+        # Ensure the city or state is at least a partial match
+        if query_city == clean_text(best_match_row['companyCity']) or query_state == clean_text(best_match_row['companyState']):
+            return return_match(best_match_row, best_match_tuple[1])
+
+    return no_match()
+
 # Streamlit UI
 st.title("Fuzzy Matching Tool")
+
+# Connect to SQLite database and limit the columns pulled
+conn = sqlite3.connect("crm_data.db")
+crm_df = pd.read_sql("SELECT companyName, companyAddress, companyState, companyCity, companyZipCode, systemId FROM crm", conn)
+
+# Standardize CRM data right after loading
+crm_df['companyName'] = crm_df['companyName'].apply(clean_text)
+crm_df['companyAddress'] = crm_df['companyAddress'].apply(standardize_address)
+crm_df['companyCity'] = crm_df['companyCity'].apply(clean_text)
+crm_df['companyState'] = crm_df['companyState'].apply(clean_text)
+crm_df['combined_name'] = crm_df['companyName']  # For fuzzy matching on names
 
 # Preview CRM data
 st.write(f"CRM Data Loaded: {crm_df.shape[0]} rows")
@@ -117,9 +142,9 @@ if uploaded_file is not None:
     # Load the uploaded file (CSV or Excel)
     user_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
-    # Clean the text data
+    # Clean and standardize the uploaded file just like the CRM data
     user_df['companyName'] = user_df['companyName'].apply(clean_text)
-    user_df['companyAddress'] = user_df['companyAddress'].apply(standardize_address)  # Standardize addresses here
+    user_df['companyAddress'] = user_df['companyAddress'].apply(standardize_address)
     user_df['companyCity'] = user_df['companyCity'].apply(clean_text)
     user_df['companyState'] = user_df['companyState'].apply(clean_text)
 
