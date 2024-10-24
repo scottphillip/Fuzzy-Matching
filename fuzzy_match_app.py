@@ -44,9 +44,9 @@ def load_and_standardize_crm_data():
         crm_df['companyAddress'] = crm_df['companyAddress'].apply(standardize_address)
         crm_df['companyCity'] = crm_df['companyCity'].apply(clean_text)
         crm_df['companyState'] = crm_df['companyState'].apply(clean_text)
-        
+
         return crm_df
-        
+    
     except sqlite3.OperationalError as e:
         # Display an error if the database couldn't be opened
         st.error(f"Error opening database: {e}")
@@ -156,8 +156,8 @@ def get_best_match(row, crm_df):
 # Streamlit UI
 st.title("Fuzzy Matching Tool")
 
-# Load CRM data
-crm_df = load_crm_data()
+# Load CRM data and standardize it
+crm_df = load_and_standardize_crm_data()
 crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyCity'] + ' ' + crm_df['companyState']
 st.write(f"CRM Data Loaded: {crm_df.shape[0]} rows")
 st.dataframe(crm_df.head(500))  # Preview first 500 rows
@@ -183,7 +183,7 @@ if uploaded_file is not None and not st.session_state['matching_complete']:
     with ThreadPoolExecutor(max_workers=4) as executor:
         for idx, result in enumerate(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in user_df.iterrows()])):
             results.append(result)
-            progress_bar.progress((idx + 1) / total_rows)
+            progress_bar.progress((idx + 1) / total_rows)  # Update progress bar
 
     # Create results DataFrame
     for key in results[0].keys():
