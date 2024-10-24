@@ -24,21 +24,27 @@ prevent_sleep()
 # Function to load CRM data from the static default path
 @st.cache_data
 def load_crm_data():
+    db_path = "crm_data.db"  # Relative path to the file in your GitHub repository
+    st.write(f"Trying to connect to database at: {db_path}")
+    
     try:
-        db_path = "C:/Users/ScottPhillips/OneDrive - Affinity Group/Desktop/Applications/Fuzzy Matching/crm_data.db"
-        st.write(f"Trying to connect to database at: {db_path}")
-        
+        # Connect to the SQLite database
         conn = sqlite3.connect(db_path)
+        
+        # Query to retrieve necessary columns
         crm_df = pd.read_sql("SELECT companyName, companyAddress, companyCity, companyState, companyZipCode, systemId FROM crm", conn)
+        
+        # Close the database connection
         conn.close()
         
+        # Return the CRM dataframe
         return crm_df
     
     except sqlite3.OperationalError as e:
+        # Display an error if the database couldn't be opened
         st.error(f"Error opening database: {e}")
-        return pd.DataFrame()  # Return empty dataframe if there's an error
-
-    return crm_df
+        # Return an empty dataframe on failure
+        return pd.DataFrame()
 
 # Function to standardize and clean address based on VBA logic
 def standardize_address(address):
