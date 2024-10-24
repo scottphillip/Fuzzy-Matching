@@ -4,7 +4,6 @@ import sqlite3
 import re
 from rapidfuzz import process, fuzz  # Use rapidfuzz for faster processing
 from concurrent.futures import ThreadPoolExecutor
-import os
 import platform
 
 # Function to prevent sleep mode (Windows only)
@@ -22,13 +21,10 @@ def allow_sleep():
 # Prevent sleep at the start of the script
 prevent_sleep()
 
-# Function to load CRM data dynamically from a local or default path
+# Function to load CRM data from the static default path
 @st.cache_data
-def load_crm_data(db_path=None):
-    if db_path is None:
-        db_path = "./crm_data.db"  # Default fallback location
-
-    conn = sqlite3.connect(db_path)
+def load_crm_data():
+    conn = sqlite3.connect("crm_data.db")  # Default path, should be in the working directory
     crm_df = pd.read_sql("SELECT companyName, companyAddress, companyCity, companyState, companyZipCode, systemId FROM crm", conn)
     conn.close()
 
@@ -114,11 +110,8 @@ def get_best_match(row, crm_df):
 # Streamlit UI
 st.title("Fuzzy Matching Tool")
 
-# Dynamic CRM path (use local path or GitHub repository as needed)
-crm_data_path = st.text_input("Enter CRM Data Path (Leave blank for default):", value="C:/Users/ScottPhillips/OneDrive - Affinity Group/Desktop/Applications/Fuzzy Matching/crm_data.db")
-
 # Load CRM Data
-crm_df = load_crm_data(crm_data_path)
+crm_df = load_crm_data()
 st.write(f"CRM Data Loaded: {crm_df.shape[0]} rows")
 st.dataframe(crm_df.head(500))  # Preview first 500 rows
 
