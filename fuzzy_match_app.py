@@ -46,12 +46,12 @@ def load_crm_data():
         # Return an empty dataframe on failure
         return pd.DataFrame()
 
-# Function to standardize and clean address based on VBA logic
+# Function to standardize and clean address
 def standardize_address(address):
-    address = address.upper()  # Convert to uppercase
-    address = re.sub(r'\.', '', address)  # Remove periods
-    address = re.sub(r',', '', address)  # Remove commas
-    address = re.sub(r'-', '', address)  # Remove hyphens
+    address = address.upper()
+    address = re.sub(r'\.', '', address)
+    address = re.sub(r',', '', address)
+    address = re.sub(r'-', '', address)
     address = re.sub(r'\bSTREET\b', 'ST', address)
     address = re.sub(r'\bROAD\b', 'RD', address)
     address = re.sub(r'\bBOULEVARD\b', 'BLVD', address)
@@ -77,34 +77,50 @@ def standardize_address(address):
     address = re.sub(r'\bSOUTHEAST\b', 'SE', address)
     address = re.sub(r'\bSOUTHWEST\b', 'SW', address)
 
-    # Remove suffixes like St, Dr, Ave, etc.
+    # Remove common suffixes (St, Rd, etc.)
     address = re.sub(r'\bST\b|\bRD\b|\bBLVD\b|\bDR\b|\bAVE\b|\bCT\b|\bLN\b|\bCIR\b|\bPKWY\b|\bHWY\b', '', address)
 
-    # Remove double spaces
-    address = re.sub(r'\s+', ' ', address)
-    
-    return address.strip()
+    # Remove extra spaces
+    address = re.sub(r'\s+', ' ', address).strip()
 
-# Function to clean and prepare text (general cleaning)
+    return address
+
+# Function to clean general text
 def clean_text(text):
     return ' '.join(str(text).upper().split())
 
-# Function to get the best match
+# Function to match based on name and address
 def get_best_match(row, crm_df):
     query_name = clean_text(row['companyName'])
     query_address = standardize_address(row['companyAddress'])  # Standardize address here
     query_city = clean_text(row['companyCity'])
     query_state = clean_text(row['companyState'])
 
-    # Use fuzzy matching with rapidfuzz
-    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_city} {query_state}", 
-                                          crm_df['combined'], scorer=fuzz.token_sort_ratio)
+    # Exact address match criteria: street and city must match after standardization
+    for _, crm_row in crm_df.iterrows():
+        crm_address = standardize_address(crm_row['companyAddress'])
+        crm_city = clean_text(crm_row['companyCity'])
+        crm_state = clean_text(crm_row['companyState'])
+        
+        if query_address == crm_address and query_city == crm_city:
+            return {
+                'Match ID': crm_row['systemId'],
+                'Match Score': 100,  # Perfect match for address
+                'Matched Name': crm_row['companyName'],
+                'Matched Address': crm_row['companyAddress'],
+                'Matched City': crm_row['companyCity'],
+                'Matched State': crm_row['companyState'],
+                'Matched Zip': crm_row['companyZipCode']
+            }
+
+    # If no exact address match, use fuzzy name matching but require city match
+    best_match_tuple = process.extractOne(f"{query_name} {query_city}", crm_df['combined'], scorer=fuzz.token_sort_ratio)
 
     if best_match_tuple:
-        best_match, score = best_match_tuple[0], best_match_tuple[1]  # Unpack only the first two values
+        best_match, score = best_match_tuple[0], best_match_tuple[1]
         best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
-        
-        # Ensure score is above 70 and city matches
+
+        # Ensure fuzzy match score >= 70 and city matches
         if score >= 70 and query_city == clean_text(best_match_row['companyCity']):
             return {
                 'Match ID': best_match_row['systemId'],
@@ -115,6 +131,7 @@ def get_best_match(row, crm_df):
                 'Matched State': best_match_row['companyState'],
                 'Matched Zip': best_match_row['companyZipCode']
             }
+
     return {
         'Match ID': '',
         'Match Score': 0,
@@ -130,11 +147,11 @@ st.title("Fuzzy Matching Tool")
 
 # Load CRM data
 crm_df = load_crm_data()
-crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyAddress'] + ' ' + crm_df['companyCity'] + ' ' + crm_df['companyState']
+crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyCity'] + ' ' + crm_df['companyState']
 st.write(f"CRM Data Loaded: {crm_df.shape[0]} rows")
 st.dataframe(crm_df.head(500))  # Preview first 500 rows
 
-# File uploader for the user’s file
+# File uploader for the user's file
 uploaded_file = st.file_uploader("Upload your file for matching", type=["csv", "xlsx"])
 if uploaded_file is not None:
     # Load the uploaded file (CSV or Excel)
