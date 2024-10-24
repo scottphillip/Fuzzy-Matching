@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 import sqlite3
 import re
-from rapidfuzz import process, fuzz  # Use rapidfuzz for faster processing
+from rapidfuzz import process, fuzz
 from concurrent.futures import ThreadPoolExecutor
 import platform
 
@@ -21,6 +21,10 @@ def allow_sleep():
 # Prevent sleep at the start of the script
 prevent_sleep()
 
+# Initialize session state to track whether matching is completed
+if 'matching_complete' not in st.session_state:
+    st.session_state['matching_complete'] = False
+
 # Function to load CRM data from the static default path
 @st.cache_data
 def load_crm_data():
@@ -30,16 +34,11 @@ def load_crm_data():
     try:
         # Connect to the SQLite database
         conn = sqlite3.connect(db_path)
-        
         # Query to retrieve necessary columns
         crm_df = pd.read_sql("SELECT companyName, companyAddress, companyCity, companyState, companyZipCode, systemId FROM crm", conn)
-        
         # Close the database connection
         conn.close()
-        
-        # Return the CRM dataframe
         return crm_df
-    
     except sqlite3.OperationalError as e:
         # Display an error if the database couldn't be opened
         st.error(f"Error opening database: {e}")
@@ -51,8 +50,8 @@ def standardize_address(address):
     if not address or pd.isna(address):  # Check for None or NaN values
         return ''  # Return an empty string for missing addresses
     
-    # Apply standardization rules
-    address = re.sub(r'\.', '', address.upper())  # Convert to uppercase and remove periods
+    address = address.upper()  # Convert to uppercase
+    address = re.sub(r'\.', '', address)  # Remove periods
     address = re.sub(r',', '', address)  # Remove commas
     address = re.sub(r'\bSTREET\b', 'ST', address)
     address = re.sub(r'\bROAD\b', 'RD', address)
@@ -64,9 +63,11 @@ def standardize_address(address):
     address = re.sub(r'\bCIRCLE\b', 'CIR', address)
     address = re.sub(r'\bPARKWAY\b', 'PKWY', address)
     address = re.sub(r'\bSUITE\b', 'STE', address)
+    address = re.sub(r'\bBUILDING\b', 'BLDG', address)
+    address = re.sub(r'\bGROUND\b', 'GDS', address)
     address = re.sub(r'\bHIGHWAY\b', 'HWY', address)
     address = re.sub(r'\bPLACE\b', 'PL', address)
-    
+
     # Directional standardizations
     address = re.sub(r'\bNORTH\b', 'N', address)
     address = re.sub(r'\bSOUTH\b', 'S', address)
@@ -77,11 +78,16 @@ def standardize_address(address):
     address = re.sub(r'\bSOUTHEAST\b', 'SE', address)
     address = re.sub(r'\bSOUTHWEST\b', 'SW', address)
 
-    # Remove double spaces and common suffixes
+    # Remove double spaces
     address = re.sub(r'\s+', ' ', address).strip()
+
+    # Remove common suffixes (St, Rd, etc.)
     address = re.sub(r'\bST\b|\bRD\b|\bBLVD\b|\bDR\b|\bAVE\b|\bCT\b|\bLN\b|\bCIR\b|\bPKWY\b|\bHWY\b', '', address)
-    
-    return re.sub(r'\s+', ' ', address).strip()
+
+    # Remove extra spaces
+    address = re.sub(r'\s+', ' ', address).strip()
+
+    return address
 
 # Function to clean general text
 def clean_text(text):
@@ -90,7 +96,7 @@ def clean_text(text):
 # Function to match based on name and address
 def get_best_match(row, crm_df):
     query_name = clean_text(row['companyName'])
-    query_address = standardize_address(row['companyAddress'])  # Standardize address here
+    query_address = standardize_address(row['companyAddress'])
     query_city = clean_text(row['companyCity'])
     query_state = clean_text(row['companyState'])
 
@@ -111,14 +117,13 @@ def get_best_match(row, crm_df):
                 'Matched Zip': crm_row['companyZipCode']
             }
 
-    # If no exact address match, use fuzzy name matching but require city match
+    # Fuzzy name matching with a threshold of 70, requiring city match
     best_match_tuple = process.extractOne(f"{query_name} {query_city}", crm_df['combined'], scorer=fuzz.token_sort_ratio)
 
     if best_match_tuple:
         best_match, score = best_match_tuple[0], best_match_tuple[1]
         best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
 
-        # Ensure fuzzy match score >= 70 and city matches
         if score >= 70 and query_city == clean_text(best_match_row['companyCity']):
             return {
                 'Match ID': best_match_row['systemId'],
@@ -151,13 +156,13 @@ st.dataframe(crm_df.head(500))  # Preview first 500 rows
 
 # File uploader for the user's file
 uploaded_file = st.file_uploader("Upload your file for matching", type=["csv", "xlsx"])
-if uploaded_file is not None:
+if uploaded_file is not None and not st.session_state['matching_complete']:
     # Load the uploaded file (CSV or Excel)
     user_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
     # Clean and standardize the text data
     user_df['companyName'] = user_df['companyName'].apply(clean_text)
-    user_df['companyAddress'] = user_df['companyAddress'].apply(standardize_address)  # Standardize addresses here
+    user_df['companyAddress'] = user_df['companyAddress'].apply(standardize_address)
     user_df['companyCity'] = user_df['companyCity'].apply(clean_text)
     user_df['companyState'] = user_df['companyState'].apply(clean_text)
 
@@ -170,7 +175,7 @@ if uploaded_file is not None:
     with ThreadPoolExecutor(max_workers=4) as executor:
         for idx, result in enumerate(executor.map(lambda row: get_best_match(row, crm_df), [row for _, row in user_df.iterrows()])):
             results.append(result)
-            progress_bar.progress((idx + 1) / total_rows)  # Update progress bar
+            progress_bar.progress((idx + 1) / total_rows)
 
     # Create results DataFrame
     for key in results[0].keys():
@@ -181,9 +186,12 @@ if uploaded_file is not None:
     with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
         user_df.to_excel(writer, index=False, sheet_name='Original Data')
 
-    # Streamlit download button
+    # Display the download button
     st.success("Fuzzy matching completed! Download the results below:")
     st.download_button(label="Download Matched Results", data=open(output_path, "rb").read(), file_name=output_path)
+
+    # Mark the matching as complete in session state
+    st.session_state['matching_complete'] = True
 
 # Allow the system to sleep after execution
 allow_sleep()
