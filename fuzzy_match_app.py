@@ -46,12 +46,14 @@ def load_crm_data():
         # Return an empty dataframe on failure
         return pd.DataFrame()
 
-# Function to standardize and clean address
+# Function to standardize and clean address based on VBA logic
 def standardize_address(address):
-    address = address.upper()
-    address = re.sub(r'\.', '', address)
-    address = re.sub(r',', '', address)
-    address = re.sub(r'-', '', address)
+    if not address or pd.isna(address):  # Check for None or NaN values
+        return ''  # Return an empty string for missing addresses
+    
+    address = address.upper()  # Convert to uppercase
+    address = re.sub(r'\.', '', address)  # Remove periods
+    address = re.sub(r',', '', address)  # Remove commas
     address = re.sub(r'\bSTREET\b', 'ST', address)
     address = re.sub(r'\bROAD\b', 'RD', address)
     address = re.sub(r'\bBOULEVARD\b', 'BLVD', address)
@@ -66,7 +68,7 @@ def standardize_address(address):
     address = re.sub(r'\bGROUND\b', 'GDS', address)
     address = re.sub(r'\bHIGHWAY\b', 'HWY', address)
     address = re.sub(r'\bPLACE\b', 'PL', address)
-
+    
     # Directional standardizations
     address = re.sub(r'\bNORTH\b', 'N', address)
     address = re.sub(r'\bSOUTH\b', 'S', address)
@@ -77,7 +79,10 @@ def standardize_address(address):
     address = re.sub(r'\bSOUTHEAST\b', 'SE', address)
     address = re.sub(r'\bSOUTHWEST\b', 'SW', address)
 
-    # Remove common suffixes (St, Rd, etc.)
+    # Remove double spaces
+    address = re.sub(r'\s+', ' ', address).strip()
+
+        # Remove common suffixes (St, Rd, etc.)
     address = re.sub(r'\bST\b|\bRD\b|\bBLVD\b|\bDR\b|\bAVE\b|\bCT\b|\bLN\b|\bCIR\b|\bPKWY\b|\bHWY\b', '', address)
 
     # Remove extra spaces
