@@ -51,6 +51,7 @@ def standardize_address(address):
     address = address.upper()  # Convert to uppercase
     address = re.sub(r'\.', '', address)  # Remove periods
     address = re.sub(r',', '', address)  # Remove commas
+    address = re.sub(r'-', '', address)  # Remove hyphens
     address = re.sub(r'\bSTREET\b', 'ST', address)
     address = re.sub(r'\bROAD\b', 'RD', address)
     address = re.sub(r'\bBOULEVARD\b', 'BLVD', address)
@@ -62,6 +63,7 @@ def standardize_address(address):
     address = re.sub(r'\bPARKWAY\b', 'PKWY', address)
     address = re.sub(r'\bSUITE\b', 'STE', address)
     address = re.sub(r'\bBUILDING\b', 'BLDG', address)
+    address = re.sub(r'\bGROUND\b', 'GDS', address)
     address = re.sub(r'\bHIGHWAY\b', 'HWY', address)
     address = re.sub(r'\bPLACE\b', 'PL', address)
 
@@ -75,13 +77,15 @@ def standardize_address(address):
     address = re.sub(r'\bSOUTHEAST\b', 'SE', address)
     address = re.sub(r'\bSOUTHWEST\b', 'SW', address)
 
-    # Remove common suffixes (like 'St', 'Ave') and double spaces
-    address = re.sub(r'\b(ST|RD|BLVD|DR|AVE|CT|LN|CIR|PKWY|HWY|PL)\b', '', address)
-    address = re.sub(r'\s+', ' ', address)  # Remove double spaces
+    # Remove suffixes like St, Dr, Ave, etc.
+    address = re.sub(r'\bST\b|\bRD\b|\bBLVD\b|\bDR\b|\bAVE\b|\bCT\b|\bLN\b|\bCIR\b|\bPKWY\b|\bHWY\b', '', address)
 
+    # Remove double spaces
+    address = re.sub(r'\s+', ' ', address)
+    
     return address.strip()
 
-# Function to clean and prepare text (for names and general strings)
+# Function to clean and prepare text (general cleaning)
 def clean_text(text):
     return ' '.join(str(text).upper().split())
 
@@ -92,18 +96,16 @@ def get_best_match(row, crm_df):
     query_city = clean_text(row['companyCity'])
     query_state = clean_text(row['companyState'])
 
-    crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyAddress'] + ' ' + crm_df['companyCity'] + ' ' + crm_df['companyState']
-    choices = crm_df['combined'].tolist()  # Precompute the list of combined strings
-
-    # Use fuzzy matching with rapidfuzz on name only when city and address are matching
-    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_city} {query_state}", choices, scorer=fuzz.token_sort_ratio)
+    # Use fuzzy matching with rapidfuzz
+    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_city} {query_state}", 
+                                          crm_df['combined'], scorer=fuzz.token_sort_ratio)
 
     if best_match_tuple:
-        best_match, score = best_match_tuple[0], best_match_tuple[1]  # Unpack the best match
+        best_match, score = best_match_tuple[0], best_match_tuple[1]  # Unpack only the first two values
         best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
-
-        # Ensure that the city must match and the score must be 70 or higher
-        if score >= 70 and query_city == clean_text(best_match_row['companyCity']) and query_state == clean_text(best_match_row['companyState']):
+        
+        # Ensure score is above 70 and city matches
+        if score >= 70 and query_city == clean_text(best_match_row['companyCity']):
             return {
                 'Match ID': best_match_row['systemId'],
                 'Match Score': score,
@@ -126,8 +128,9 @@ def get_best_match(row, crm_df):
 # Streamlit UI
 st.title("Fuzzy Matching Tool")
 
-# Load CRM Data
+# Load CRM data
 crm_df = load_crm_data()
+crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyAddress'] + ' ' + crm_df['companyCity'] + ' ' + crm_df['companyState']
 st.write(f"CRM Data Loaded: {crm_df.shape[0]} rows")
 st.dataframe(crm_df.head(500))  # Preview first 500 rows
 
@@ -137,7 +140,7 @@ if uploaded_file is not None:
     # Load the uploaded file (CSV or Excel)
     user_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
-    # Clean the text data and standardize addresses
+    # Clean and standardize the text data
     user_df['companyName'] = user_df['companyName'].apply(clean_text)
     user_df['companyAddress'] = user_df['companyAddress'].apply(standardize_address)  # Standardize addresses here
     user_df['companyCity'] = user_df['companyCity'].apply(clean_text)
