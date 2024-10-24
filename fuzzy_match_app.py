@@ -24,9 +24,12 @@ prevent_sleep()
 # Function to load CRM data from the static default path
 @st.cache_data
 def load_crm_data():
-    conn = sqlite3.connect("crm_data.db")  # Default path, should be in the working directory
+    db_path = "C:/Users/ScottPhillips/OneDrive - Affinity Group/Desktop/Applications/Fuzzy Matching/crm_data.db"  # Full path
+    conn = sqlite3.connect(db_path)
     crm_df = pd.read_sql("SELECT companyName, companyAddress, companyCity, companyState, companyZipCode, systemId FROM crm", conn)
     conn.close()
+    return crm_df
+
 
     return crm_df
 
