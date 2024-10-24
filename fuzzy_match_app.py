@@ -4,55 +4,41 @@ import sqlite3
 import re
 from rapidfuzz import process, fuzz  # Use rapidfuzz for faster processing
 from concurrent.futures import ThreadPoolExecutor
-import time
 import os
-import hashlib
-import pickle
-
-# Remove system sleep prevention for non-Windows environments
 import platform
-if platform.system() == "Windows":
-    import ctypes
 
 # Function to prevent sleep mode (Windows only)
 def prevent_sleep():
     if platform.system() == "Windows":
+        import ctypes
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000002)
 
 # Function to allow system sleep (Windows only)
 def allow_sleep():
     if platform.system() == "Windows":
+        import ctypes
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
 
 # Prevent sleep at the start of the script
 prevent_sleep()
 
-# Caching CRM data in session state to avoid reloading
+# Function to load CRM data dynamically from a local or default path
 @st.cache_data
-def load_crm_data(db_path):
-    # Connect to SQLite database
+def load_crm_data(db_path=None):
+    if db_path is None:
+        db_path = "./crm_data.db"  # Default fallback location
+
     conn = sqlite3.connect(db_path)
     crm_df = pd.read_sql("SELECT companyName, companyAddress, companyCity, companyState, companyZipCode, systemId FROM crm", conn)
     conn.close()
+
     return crm_df
 
-# Generic terms to deprioritize in name matches
-GENERIC_TERMS = ['REGIONAL', 'MEDICAL', 'CENTER', 'HEALTH', 'HOSPITAL']
-
-# Function to deprioritize generic terms in the match score
-def deprioritize_generic_terms(name):
-    score_penalty = 0
-    for term in GENERIC_TERMS:
-        if term in name.upper():
-            score_penalty += 5  # Deduct points for common terms to lower their match priority
-    return score_penalty
-
-# Function to standardize and clean address
+# Function to standardize and clean address based on VBA logic
 def standardize_address(address):
-    if not isinstance(address, str):
-        return ""
     address = address.upper()  # Convert to uppercase
-    address = re.sub(r'[.,\-()/]', '', address)  # Remove punctuation
+    address = re.sub(r'\.', '', address)  # Remove periods
+    address = re.sub(r',', '', address)  # Remove commas
     address = re.sub(r'\bSTREET\b', 'ST', address)
     address = re.sub(r'\bROAD\b', 'RD', address)
     address = re.sub(r'\bBOULEVARD\b', 'BLVD', address)
@@ -65,66 +51,56 @@ def standardize_address(address):
     address = re.sub(r'\bSUITE\b', 'STE', address)
     address = re.sub(r'\bBUILDING\b', 'BLDG', address)
     address = re.sub(r'\bHIGHWAY\b', 'HWY', address)
-    address = re.sub(r'\s+', ' ', address)  # Remove extra spaces
+    address = re.sub(r'\bPLACE\b', 'PL', address)
+
+    # Directional standardizations
+    address = re.sub(r'\bNORTH\b', 'N', address)
+    address = re.sub(r'\bSOUTH\b', 'S', address)
+    address = re.sub(r'\bEAST\b', 'E', address)
+    address = re.sub(r'\bWEST\b', 'W', address)
+    address = re.sub(r'\bNORTHEAST\b', 'NE', address)
+    address = re.sub(r'\bNORTHWEST\b', 'NW', address)
+    address = re.sub(r'\bSOUTHEAST\b', 'SE', address)
+    address = re.sub(r'\bSOUTHWEST\b', 'SW', address)
+
+    # Remove common suffixes (like 'St', 'Ave') and double spaces
+    address = re.sub(r'\b(ST|RD|BLVD|DR|AVE|CT|LN|CIR|PKWY|HWY|PL)\b', '', address)
+    address = re.sub(r'\s+', ' ', address)  # Remove double spaces
+
     return address.strip()
 
-# Function to clean and prepare text (general cleaning)
+# Function to clean and prepare text (for names and general strings)
 def clean_text(text):
     return ' '.join(str(text).upper().split())
 
-# Function to get the best match with address (exact match) and name (fuzzy match)
+# Function to get the best match
 def get_best_match(row, crm_df):
     query_name = clean_text(row['companyName'])
-    query_address = standardize_address(row['companyAddress'])
+    query_address = standardize_address(row['companyAddress'])  # Standardize address here
     query_city = clean_text(row['companyCity'])
     query_state = clean_text(row['companyState'])
 
-    # Step 1: Exact match on address + city + state
-    exact_matches = crm_df[
-        (crm_df['companyAddress'].apply(standardize_address) == query_address) &
-        (crm_df['companyCity'].apply(clean_text) == query_city) &
-        (crm_df['companyState'].apply(clean_text) == query_state)
-    ]
+    crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyAddress'] + ' ' + crm_df['companyCity'] + ' ' + crm_df['companyState']
+    choices = crm_df['combined'].tolist()  # Precompute the list of combined strings
 
-    if not exact_matches.empty:
-        best_match_row = exact_matches.iloc[0]
-        return {
-            'Match ID': best_match_row['systemId'],
-            'Match Score': 100,
-            'Matched Name': best_match_row['companyName'],
-            'Matched Address': best_match_row['companyAddress'],
-            'Matched City': best_match_row['companyCity'],
-            'Matched State': best_match_row['companyState'],
-            'Matched Zip': best_match_row['companyZipCode']
-        }
+    # Use fuzzy matching with rapidfuzz on name only when city and address are matching
+    best_match_tuple = process.extractOne(f"{query_name} {query_address} {query_city} {query_state}", choices, scorer=fuzz.token_sort_ratio)
 
-    # Step 2: Fuzzy match on name but enforce city match and deprioritize common terms
-    crm_df['adjusted_name'] = crm_df['companyName'].apply(clean_text)
-    
-    # Perform fuzzy matching on names
-    best_match_tuple = process.extractOne(query_name, crm_df['adjusted_name'].tolist(), scorer=fuzz.token_sort_ratio)
+    if best_match_tuple:
+        best_match, score = best_match_tuple[0], best_match_tuple[1]  # Unpack the best match
+        best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
 
-    if best_match_tuple and best_match_tuple[1] >= 85:  # Stricter threshold for fuzzy name match
-        best_match_name = best_match_tuple[0]
-        best_match_row = crm_df[crm_df['adjusted_name'] == best_match_name].iloc[0]
-
-        # Only accept the match if the city matches exactly
-        if query_city == clean_text(best_match_row['companyCity']):
-            # Adjust score for generic terms in the match
-            score_penalty = deprioritize_generic_terms(best_match_name)
-            adjusted_score = best_match_tuple[1] - score_penalty
-            
+        # Ensure that the city must match and the score must be 70 or higher
+        if score >= 70 and query_city == clean_text(best_match_row['companyCity']) and query_state == clean_text(best_match_row['companyState']):
             return {
                 'Match ID': best_match_row['systemId'],
-                'Match Score': max(adjusted_score, 0),  # Ensure score doesn't go below 0
+                'Match Score': score,
                 'Matched Name': best_match_row['companyName'],
                 'Matched Address': best_match_row['companyAddress'],
                 'Matched City': best_match_row['companyCity'],
                 'Matched State': best_match_row['companyState'],
                 'Matched Zip': best_match_row['companyZipCode']
             }
-
-    # If no match found
     return {
         'Match ID': '',
         'Match Score': 0,
@@ -138,11 +114,11 @@ def get_best_match(row, crm_df):
 # Streamlit UI
 st.title("Fuzzy Matching Tool")
 
-# Allow file path customization for CRM database
-db_path = "C:/Users/ScottPhillips/OneDrive - Affinity Group/Desktop/Applications/Fuzzy Matching/crm_data.db"
+# Dynamic CRM path (use local path or GitHub repository as needed)
+crm_data_path = st.text_input("Enter CRM Data Path (Leave blank for default):", value="C:/Users/ScottPhillips/OneDrive - Affinity Group/Desktop/Applications/Fuzzy Matching/crm_data.db")
 
-# Load and cache CRM data
-crm_df = load_crm_data(db_path)
+# Load CRM Data
+crm_df = load_crm_data(crm_data_path)
 st.write(f"CRM Data Loaded: {crm_df.shape[0]} rows")
 st.dataframe(crm_df.head(500))  # Preview first 500 rows
 
@@ -152,9 +128,9 @@ if uploaded_file is not None:
     # Load the uploaded file (CSV or Excel)
     user_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
-    # Clean and standardize user data
+    # Clean the text data and standardize addresses
     user_df['companyName'] = user_df['companyName'].apply(clean_text)
-    user_df['companyAddress'] = user_df['companyAddress'].apply(standardize_address)
+    user_df['companyAddress'] = user_df['companyAddress'].apply(standardize_address)  # Standardize addresses here
     user_df['companyCity'] = user_df['companyCity'].apply(clean_text)
     user_df['companyState'] = user_df['companyState'].apply(clean_text)
 
