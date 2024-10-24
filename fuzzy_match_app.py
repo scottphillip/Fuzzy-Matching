@@ -25,9 +25,9 @@ prevent_sleep()
 if 'matching_complete' not in st.session_state:
     st.session_state['matching_complete'] = False
 
-# Function to load CRM data from the static default path
+# Function to load CRM data from the static default path and standardize it
 @st.cache_data
-def load_crm_data():
+def load_and_standardize_crm_data():
     db_path = "crm_data.db"  # Relative path to the file in your GitHub repository
     st.write(f"Trying to connect to database at: {db_path}")
     
@@ -38,7 +38,15 @@ def load_crm_data():
         crm_df = pd.read_sql("SELECT companyName, companyAddress, companyCity, companyState, companyZipCode, systemId FROM crm", conn)
         # Close the database connection
         conn.close()
+
+        # Apply standardization to CRM data
+        crm_df['companyName'] = crm_df['companyName'].apply(clean_text)
+        crm_df['companyAddress'] = crm_df['companyAddress'].apply(standardize_address)
+        crm_df['companyCity'] = crm_df['companyCity'].apply(clean_text)
+        crm_df['companyState'] = crm_df['companyState'].apply(clean_text)
+        
         return crm_df
+        
     except sqlite3.OperationalError as e:
         # Display an error if the database couldn't be opened
         st.error(f"Error opening database: {e}")
