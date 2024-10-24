@@ -51,8 +51,8 @@ def standardize_address(address):
     if not address or pd.isna(address):  # Check for None or NaN values
         return ''  # Return an empty string for missing addresses
     
-    address = address.upper()  # Convert to uppercase
-    address = re.sub(r'\.', '', address)  # Remove periods
+    # Apply standardization rules
+    address = re.sub(r'\.', '', address.upper())  # Convert to uppercase and remove periods
     address = re.sub(r',', '', address)  # Remove commas
     address = re.sub(r'\bSTREET\b', 'ST', address)
     address = re.sub(r'\bROAD\b', 'RD', address)
@@ -64,8 +64,6 @@ def standardize_address(address):
     address = re.sub(r'\bCIRCLE\b', 'CIR', address)
     address = re.sub(r'\bPARKWAY\b', 'PKWY', address)
     address = re.sub(r'\bSUITE\b', 'STE', address)
-    address = re.sub(r'\bBUILDING\b', 'BLDG', address)
-    address = re.sub(r'\bGROUND\b', 'GDS', address)
     address = re.sub(r'\bHIGHWAY\b', 'HWY', address)
     address = re.sub(r'\bPLACE\b', 'PL', address)
     
@@ -79,16 +77,11 @@ def standardize_address(address):
     address = re.sub(r'\bSOUTHEAST\b', 'SE', address)
     address = re.sub(r'\bSOUTHWEST\b', 'SW', address)
 
-    # Remove double spaces
+    # Remove double spaces and common suffixes
     address = re.sub(r'\s+', ' ', address).strip()
-
-        # Remove common suffixes (St, Rd, etc.)
     address = re.sub(r'\bST\b|\bRD\b|\bBLVD\b|\bDR\b|\bAVE\b|\bCT\b|\bLN\b|\bCIR\b|\bPKWY\b|\bHWY\b', '', address)
-
-    # Remove extra spaces
-    address = re.sub(r'\s+', ' ', address).strip()
-
-    return address
+    
+    return re.sub(r'\s+', ' ', address).strip()
 
 # Function to clean general text
 def clean_text(text):
