@@ -117,6 +117,10 @@ def get_best_match(row, crm_df):
     query_city = clean_text(row['companyCity'])
     query_state = clean_text(row['companyState'])
 
+    # Remove city name from the company name for fuzzy matching, if present
+    if query_city in query_name:
+        query_name = query_name.replace(query_city, '').strip()  # Remove city name from company name
+    
     # Exact address match criteria: street and city must match after standardization
     for _, crm_row in crm_df.iterrows():
         crm_address = standardize_address(crm_row['companyAddress'])
@@ -134,12 +138,14 @@ def get_best_match(row, crm_df):
                 'Matched Zip': crm_row['companyZipCode']
             }
 
-    # If no exact address match, use fuzzy name matching but require city match
-    best_match_tuple = process.extractOne(f"{query_name} {query_city}", crm_df['combined'], scorer=fuzz.token_sort_ratio)
+    # Use fuzzy matching but require the city to match
+    crm_df['name_without_city'] = crm_df.apply(lambda row: row['companyName'].replace(row['companyCity'], '').strip() if row['companyCity'] in row['companyName'] else row['companyName'], axis=1)
+
+    best_match_tuple = process.extractOne(f"{query_name} {query_city}", crm_df['name_without_city'] + ' ' + crm_df['companyCity'], scorer=fuzz.token_sort_ratio)
 
     if best_match_tuple:
         best_match, score = best_match_tuple[0], best_match_tuple[1]
-        best_match_row = crm_df.loc[crm_df['combined'] == best_match].iloc[0]
+        best_match_row = crm_df.loc[crm_df['name_without_city'] + ' ' + crm_df['companyCity'] == best_match].iloc[0]
 
         # Ensure fuzzy match score >= 70 and city matches
         if score >= 70 and query_city == clean_text(best_match_row['companyCity']):
