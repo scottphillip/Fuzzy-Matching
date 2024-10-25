@@ -38,6 +38,8 @@ def load_and_standardize_crm_data():
         # Query to retrieve necessary columns
         crm_df = pd.read_sql("SELECT companyName, companyAddress, companyCity, companyState, companyZipCode, systemId FROM crm", conn)
         
+        st.write("CRM data loaded. Standardizing address, city, and state fields...")  # Log when standardization starts
+
         # Standardize CRM addresses
         crm_df['companyAddress'] = crm_df['companyAddress'].apply(standardize_address)
         crm_df['companyCity'] = crm_df['companyCity'].apply(clean_text)
@@ -46,6 +48,8 @@ def load_and_standardize_crm_data():
         # Combine fields for fuzzy matching
         crm_df['combined'] = crm_df['companyName'] + ' ' + crm_df['companyCity'] + ' ' + crm_df['companyState']
         
+        st.write("CRM data standardization completed.")  # Log when standardization completes
+
         # Close the database connection
         conn.close()
         
@@ -174,6 +178,7 @@ if uploaded_file is not None and not st.session_state['matching_completed']:
     user_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
     # Clean and standardize the text data
+    st.write("Standardizing the uploaded file's address, city, and state fields...")  # Indicate file standardization
     user_df['companyName'] = user_df['companyName'].apply(clean_text)
     user_df['companyAddress'] = user_df['companyAddress'].apply(standardize_address)  # Standardize addresses here
     user_df['companyCity'] = user_df['companyCity'].apply(clean_text)
